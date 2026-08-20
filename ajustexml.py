@@ -9,6 +9,10 @@ def formatar_data(data):
 
 
 def processar_conteudo_xml(conteudo: str) -> str:
+    # enviPSCF -> enviPSCF versao="1.00"
+    # Trata tanto <enviPSCF> simples quanto com possíveis espaços extras
+    conteudo = re.sub(r"<enviPSCF\s*>", '<enviPSCF versao="1.00">', conteudo)
+
     # cEAN
     conteudo = re.sub(r"<cEAN\s*/>", "<cEAN>0</cEAN>", conteudo)
 
@@ -40,7 +44,6 @@ def processar_conteudo_xml(conteudo: str) -> str:
     return conteudo
 
 
-# Interface Streamlit
 st.set_page_config(page_title="Processador de XMLs", layout="centered")
 
 st.title("Corretor de Arquivos XML")
@@ -61,17 +64,68 @@ if arquivos_upload:
         with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for arq in arquivos_upload:
                 try:
-                    # Tenta ler como UTF-8; se contiver caracteres acentuados legados, lê como ISO-8859-1
                     raw_bytes = arq.read()
-                    try:
-                        conteudo_original = raw_bytes.decode("utf-8")
-                    except UnicodeDecodeError:
-                        conteudo_original = raw_bytes.decode("iso-8859-1")
 
+                    # Identifica encoding declarado no cabeçalho <?xml ... ?>
+                    match_enc = re.search(
+                        rb'<\?xml[^>]*encoding=["\']([^"\']+)["\']',
+                        raw_bytes,
+                        re.IGNORECASE,
+                    )
+                    encoding_declarado = (
+                        match_enc.group(1).decode("ascii").lower()
+                        if match_enc
+                        else None
+                    )
+
+                    # Decodificação inteligente de caracteres
+                    conteudo_original = None
+                    encodings_para_tentar = [
+                        encoding_declarado,
+                        "iso-8859-1",
+                        "windows-1252",
+                        "utf-8",
+                    ]
+                    encodings_para_tentar = [
+                        e for e in encodings_para_tentar if e
+                    ]
+
+                    for enc in encodings_para_tentar:
+                        try:
+                            conteudo_original = raw_bytes.decode(enc)
+                            break
+                        except (UnicodeDecodeError, LookupError):
+                            continue
+
+                    if conteudo_original is None:
+                        conteudo_original = raw_bytes.decode(
+                            "latin1", errors="replace"
+                        )
+
+                    # Correção de mojibake (caso acentos como Ç venham corrompidos como Ã‡)
+                    try:
+                        if "Ã" in conteudo_original or "Â" in conteudo_original:
+                            conteudo_original = conteudo_original.encode(
+                                "iso-8859-1"
+                            ).decode("utf-8")
+                    except (UnicodeEncodeError, UnicodeDecodeError):
+                        pass
+
+                    # Aplica todas as substituições
                     conteudo_ajustado = processar_conteudo_xml(conteudo_original)
 
-                    # Adiciona o arquivo processado ao ZIP (salvando em UTF-8 padronizado)
-                    zip_file.writestr(arq.name, conteudo_ajustado)
+                    # Normaliza o cabeçalho para UTF-8
+                    conteudo_ajustado = re.sub(
+                        r'(<\?xml[^>]*encoding=["\'])[^"\']+(["\'])',
+                        r"\g<1>utf-8\2",
+                        conteudo_ajustado,
+                        flags=re.IGNORECASE,
+                    )
+
+                    # Salva no ZIP codificado em UTF-8
+                    zip_file.writestr(
+                        arq.name, conteudo_ajustado.encode("utf-8")
+                    )
                     sucessos += 1
                 except Exception as e:
                     erros.append(f"{arq.name}: {str(e)}")
@@ -82,7 +136,9 @@ if arquivos_upload:
             for erro in erros:
                 st.error(f"Erro ao processar: {erro}")
 
-        st.success(f"{sucessos} de {len(arquivos_upload)} arquivo(s) processado(s) com sucesso!")
+        st.success(
+            f"{sucessos} de {len(arquivos_upload)} arquivo(s) processado(s) com sucesso!"
+        )
 
         st.download_button(
             label="Baixar XMLs Processados (.ZIP)",
