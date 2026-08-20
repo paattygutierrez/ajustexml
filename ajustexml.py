@@ -46,7 +46,7 @@ def processar_conteudo_xml(conteudo: str) -> str:
 
 st.set_page_config(page_title="Processador de XMLs", layout="centered")
 
-st.title("Corretor de Arquivos XML")
+st.title("Corretor de Arquivos XML Tabela de preços")
 st.write("Faça o upload de um ou mais arquivos XML para processá-los em lote.")
 
 arquivos_upload = st.file_uploader(
