@@ -61,7 +61,11 @@ if arquivos_upload:
         with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for arq in arquivos_upload:
                 try:
-                    conteudo_original = arq.read().decode("utf-8")
+                    raw_bytes = arq.read()
+try:
+    conteudo_original = raw_bytes.decode("utf-8")
+except UnicodeDecodeError:
+    conteudo_original = raw_bytes.decode("iso-8859-1")
                     conteudo_ajustado = processar_conteudo_xml(conteudo_original)
                     
                     # Adiciona o arquivo processado ao ZIP
